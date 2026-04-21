@@ -1,0 +1,28 @@
+#!/bin/bash
+
+echo -e "\n\033[1mCommitting git backup\033[0m\n"
+
+cd ${PWD}
+git add .
+read -p "Enter your commit message:" commit_message
+
+echo
+
+echo "Your commit message is: $commit_message"
+
+read -p "Should we proceed(Y/n): " yn
+case $yn in
+	"" | [Yy]*)
+		echo "Commiting......."
+		git commit -m "$commit_message | backup->`date`"
+		git push origin
+		;;
+	[Nn]*)
+		echo "Abort"
+		exit 1
+		;;
+	*)
+		echo "MF respond correctly!"
+		exit 1
+		;;
+esac
