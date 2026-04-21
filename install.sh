@@ -1,82 +1,136 @@
 #!/usr/bin/env bash
-# install.sh — bootstrap a new machine from this dotfiles repo
+# install.sh — set up or update dotfiles on this machine
 #
-# Usage:
+# Fresh install:
 #   git clone https://github.com/SinghChinmayy/dotfiles.git ~/dotfiles
-#   cd ~/dotfiles && bash install.sh
+#   bash ~/dotfiles/install.sh
+#
+# Already installed — just run it again to pull updates and re-link.
 
 set -euo pipefail
 
-DOTFILES="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOTFILES="$HOME/dotfiles"
 BACKUP_DIR="$HOME/.dotfiles-backup/$(date +%Y%m%d_%H%M%S)"
 
-log()    { echo "  $*"; }
-success(){ echo "  [ok] $*"; }
+# ── Helpers ────────────────────────────────────────────────────────────────
 
-# Back up an existing file/dir, then remove it so we can symlink cleanly.
+info()    { echo "  $*"; }
+ok()      { echo "  [ok] $*"; }
+warn()    { echo "  [!!] $*"; }
+
 backup_and_remove() {
     local target="$1"
+    # skip if it's already one of our own symlinks
+    if [ -L "$target" ] && [[ "$(readlink "$target")" == "$DOTFILES"* ]]; then
+        return
+    fi
     if [ -e "$target" ] || [ -L "$target" ]; then
         mkdir -p "$BACKUP_DIR"
         cp -r "$target" "$BACKUP_DIR/"
         rm -rf "$target"
-        log "Backed up: $target -> $BACKUP_DIR/"
+        info "Backed up: $target"
     fi
 }
 
-# Create a symlink, backing up whatever was there first.
 link() {
     local src="$1" dst="$2"
     backup_and_remove "$dst"
     ln -sf "$src" "$dst"
-    success "Linked: $dst -> $src"
+    ok "$(basename "$dst") -> $src"
 }
 
-echo ""
-echo "Dotfiles installer"
-echo "=================="
-echo ""
+# ── Already installed? Pull updates first ──────────────────────────────────
 
-# ── Shell ──────────────────────────────────────────────────────────────────
-echo "[shell]"
-link "$DOTFILES/shell/bashrc"  "$HOME/.bashrc"
-link "$DOTFILES/shell/profile" "$HOME/.profile"
+if [ -d "$DOTFILES/.git" ]; then
+    # check if any managed symlink already points into ~/dotfiles
+    already_linked=false
+    [ -L "$HOME/.gitconfig" ] && [[ "$(readlink "$HOME/.gitconfig")" == "$DOTFILES"* ]] && already_linked=true
+
+    if $already_linked; then
+        echo ""
+        echo "Dotfiles already set up on this machine."
+        read -p "Pull latest changes from origin and re-link? (Y/n): " update
+        case $update in
+            "" | [Yy]*)
+                echo ""
+                echo "[update]"
+                cd "$DOTFILES"
+                git fetch origin
+                BRANCH=$(git rev-parse --abbrev-ref HEAD)
+                BEHIND=$(git rev-list --count HEAD..origin/"$BRANCH" 2>/dev/null || echo 0)
+                if [ "$BEHIND" -gt 0 ]; then
+                    info "Pulling $BEHIND new commit(s)..."
+                    git pull --rebase origin "$BRANCH"
+                else
+                    info "Already up to date."
+                fi
+                ;;
+            [Nn]*)
+                echo "Skipping update, re-linking only."
+                ;;
+            *)
+                echo "Invalid input, skipping update."
+                ;;
+        esac
+    fi
+fi
+
+echo ""
+echo "Linking dotfiles"
+echo "================"
 
 # ── Git ────────────────────────────────────────────────────────────────────
-echo "[git]"
-link "$DOTFILES/git/gitconfig" "$HOME/.gitconfig"
+if [ -f "$DOTFILES/git/gitconfig" ]; then
+    echo "[git]"
+    link "$DOTFILES/git/gitconfig" "$HOME/.gitconfig"
+fi
+
+# ── Shell ──────────────────────────────────────────────────────────────────
+if [ -f "$DOTFILES/shell/bashrc" ]; then
+    echo "[shell]"
+    link "$DOTFILES/shell/bashrc"  "$HOME/.bashrc"
+    link "$DOTFILES/shell/profile" "$HOME/.profile"
+fi
 
 # ── Vim ────────────────────────────────────────────────────────────────────
-echo "[vim]"
-link "$DOTFILES/vim/vimrc" "$HOME/.vimrc"
-
-# ── Tmux ───────────────────────────────────────────────────────────────────
-echo "[tmux]"
-link "$DOTFILES/tmux/tmux.conf" "$HOME/.tmux.conf"
+if [ -f "$DOTFILES/vim/vimrc" ]; then
+    echo "[vim]"
+    link "$DOTFILES/vim/vimrc" "$HOME/.vimrc"
+fi
 
 # ── Neovim ─────────────────────────────────────────────────────────────────
-echo "[nvim]"
-mkdir -p "$HOME/.config"
-link "$DOTFILES/nvim" "$HOME/.config/nvim"
+if [ -d "$DOTFILES/nvim" ]; then
+    echo "[nvim]"
+    mkdir -p "$HOME/.config"
+    link "$DOTFILES/nvim" "$HOME/.config/nvim"
+fi
+
+# ── Tmux ───────────────────────────────────────────────────────────────────
+if [ -f "$DOTFILES/tmux/tmux.conf" ]; then
+    echo "[tmux]"
+    link "$DOTFILES/tmux/tmux.conf" "$HOME/.tmux.conf"
+    if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
+        info "Installing tmux plugin manager..."
+        git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
+        info "Open tmux and press prefix + I to install plugins."
+    fi
+fi
 
 # ── Claude ─────────────────────────────────────────────────────────────────
-echo "[claude]"
-mkdir -p "$HOME/.claude"
-link "$DOTFILES/claude/settings.json" "$HOME/.claude/settings.json"
+if [ -f "$DOTFILES/claude/settings.json" ]; then
+    echo "[claude]"
+    mkdir -p "$HOME/.claude"
+    link "$DOTFILES/claude/settings.json" "$HOME/.claude/settings.json"
+fi
 
 # ── Bin scripts ────────────────────────────────────────────────────────────
-echo "[bin]"
-mkdir -p "$HOME/bin"
-for script in "$DOTFILES/bin/"*; do
-    chmod +x "$script"
-    link "$script" "$HOME/bin/$(basename "$script")"
-done
-
-# ── tmux plugin manager ────────────────────────────────────────────────────
-if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
-    echo "[tpm]"
-    git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
-    success "Cloned tmux plugin manager. Open tmux and press prefix + I to install plugins."
+if [ -d "$DOTFILES/bin" ] && [ -n "$(ls -A "$DOTFILES/bin")" ]; then
+    echo "[bin]"
+    mkdir -p "$HOME/bin"
+    for script in "$DOTFILES/bin/"*; do
+        chmod +x "$script"
+        link "$script" "$HOME/bin/$(basename "$script")"
+    done
 fi
 
 echo ""
@@ -86,7 +140,5 @@ if [ -d "$BACKUP_DIR" ]; then
 fi
 echo ""
 echo "Next steps:"
-echo "  1. Restart your shell (or: source ~/.bashrc)"
-echo "  2. Open nvim — plugins will auto-install via lazy.nvim"
-echo "  3. Open tmux and press prefix + I to install tmux plugins"
+echo "  source ~/.bashrc"
 echo ""

@@ -1,5 +1,0 @@
-# nvim lock file (optional — commit if you want reproducible plugin versions)
-# nvim/lazy-lock.json
-
-# backup dirs created by install.sh
-.dotfiles-backup/

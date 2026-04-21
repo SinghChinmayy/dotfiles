@@ -13,9 +13,6 @@ echo "Your commit message is: $commit_message"
 read -p "Should we proceed(Y/n): " yn
 case $yn in
 	"" | [Yy]*)
-		echo "Commiting......."
-		git commit -m "$commit_message | backup->`date`"
-		git push origin
 		;;
 	[Nn]*)
 		echo "Abort"
@@ -26,3 +23,45 @@ case $yn in
 		exit 1
 		;;
 esac
+
+echo "Commiting......."
+git commit -m "$commit_message | backup->`date`"
+
+# fetch so we have an up-to-date picture of the remote
+git fetch origin 2>/dev/null
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+BEHIND=$(git rev-list --count HEAD..origin/"$BRANCH" 2>/dev/null || echo 0)
+
+try_push() {
+	git push origin
+}
+
+if [ "$BEHIND" -gt 0 ]; then
+	echo
+	echo "  Remote has $BEHIND commit(s) your branch doesn't have."
+	read -p "  Rebase on origin/$BRANCH before pushing? (Y/n): " rb
+	case $rb in
+		"" | [Yy]*)
+			echo "Rebasing..."
+			if git rebase origin/"$BRANCH"; then
+				try_push
+			else
+				echo
+				echo "  Rebase hit conflicts. Fix them, then run:"
+				echo "    git rebase --continue && git push origin"
+				exit 1
+			fi
+			;;
+		[Nn]*)
+			echo "Skipping rebase, attempting push anyway..."
+			try_push
+			;;
+		*)
+			echo "MF respond correctly!"
+			exit 1
+			;;
+	esac
+else
+	try_push
+fi
