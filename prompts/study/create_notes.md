@@ -14,3 +14,4 @@ output in format:
 Q. ()
 A. ()
 Example (prefered is real life and relatabel so that i can recall easily in exam)
+- output in markdown and use obsidian standard for latex
